@@ -2,14 +2,13 @@ import pathlib
 
 from gittrail import utils
 
-_DP_TESTDATA = pathlib.Path(__file__).parent / "testdata"
-_DP_TESTDATA.mkdir(parents=True, exist_ok=True)
 _DP_REPOROOT = pathlib.Path(__file__).parent.parent
 
 
 class TestHashing:
-    def test_hash_file(self):
-        fp = _DP_TESTDATA / "test_hash_file.txt"
+    def test_hash_file(self, tmpdir):
+        tmpdir = pathlib.Path(tmpdir)
+        fp = tmpdir / "test_hash_file.txt"
         # Create a file large enough to trigger the chunking mechanism
         with fp.open("wb") as file:
             file.write(("x\n" * 65_536).encode("ascii"))
@@ -18,10 +17,10 @@ class TestHashing:
         assert h == "3b3b66fa0374d39c905430f7c98606e4"
         pass
 
-    def test_hash_all_files(self):
-        d1 = _DP_TESTDATA / "test_hash_all_files"
-        d2 = _DP_TESTDATA / "test_hash_all_files" / "subfolder"
-        d1.mkdir(parents=True, exist_ok=True)
+    def test_hash_all_files(self, tmpdir):
+        tmpdir = pathlib.Path(tmpdir)
+        d1 = tmpdir
+        d2 = tmpdir / "subfolder"
         d2.mkdir(parents=True, exist_ok=True)
         (d1 / "one.txt").write_text("File one")
         (d2 / "two.txt").write_text("File two")
