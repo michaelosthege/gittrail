@@ -4,6 +4,7 @@ from gittrail import utils
 
 _DP_TESTDATA = pathlib.Path(__file__).parent / "testdata"
 _DP_TESTDATA.mkdir(parents=True, exist_ok=True)
+_DP_REPOROOT = pathlib.Path(__file__).parent.parent
 
 
 class TestHashing:
@@ -28,4 +29,14 @@ class TestHashing:
         assert isinstance(result, dict)
         assert result["5d1c020d53f38ccf82ec532f35c9ca27"] == "one.txt"
         assert result["51ae396c5595862e990e318c2176addb"] == "subfolder/two.txt"
+        pass
+
+
+class TestGit:
+    def test_git_log(self):
+        commits = utils.git_log(_DP_REPOROOT)
+        assert isinstance(commits, tuple)
+        # New commits come first, because they're more relevant for the audittrail.
+        assert commits[-1] == "3286fe415a4e1b7fcfdd596a88d8e06bbf6ffed8"
+        assert commits[-2] == "ed3219e39b6aafb728fd34c9f2ec11c4978a166c"
         pass
