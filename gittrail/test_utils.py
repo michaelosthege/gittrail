@@ -1,6 +1,6 @@
 import pathlib
 
-from gittrail import utils
+from . import test_helpers, utils
 
 _DP_REPOROOT = pathlib.Path(__file__).parent.parent
 
@@ -40,7 +40,14 @@ class TestGit:
         assert commits[-2] == "ed3219e39b6aafb728fd34c9f2ec11c4978a166c"
         pass
 
-    def test_git_status(self):
-        result = utils.git_status(_DP_REPOROOT)
+    def test_git_status(self, tmpdir):
+        repo = test_helpers.create_repo(tmpdir)
+
+        result = utils.git_status(repo)
         assert "working tree clean" in result
+
+        (repo / "hello.txt").touch()
+
+        result = utils.git_status(repo)
+        assert "working tree clean" not in result
         pass

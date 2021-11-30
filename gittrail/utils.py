@@ -35,9 +35,7 @@ def hash_all_files(dp: str) -> Dict[str, str]:
 
 def git_log(dp: PathLike) -> Tuple[str]:
     """Returns a tuple of all commit hashes in the git history (newest first)."""
-    output = subprocess.check_output(
-        ["git", "--git-dir", str(dp / ".git"), "log", '--format=format:"%H"']
-    )
+    output = subprocess.check_output(["git", "-C", str(dp), "log", '--format=format:"%H"'])
     output = output.strip().decode("ascii")
     output = output.replace('"', "")
     return tuple(output.split("\n"))
@@ -45,6 +43,6 @@ def git_log(dp: PathLike) -> Tuple[str]:
 
 def git_status(dp: PathLike) -> str:
     """Returns the git status message."""
-    output = subprocess.check_output(["git", "--git-dir", str(dp / ".git"), "status"])
+    output = subprocess.check_output(["git", "-C", str(dp), "status"])
     output = output.strip().decode("ascii")
     return output
