@@ -1,3 +1,6 @@
+[![pipeline](https://github.com/michaelosthege/gittrail/workflows/pipeline/badge.svg)](https://github.com/michaelosthege/gittrail/actions)
+
+
 # `gittrail` - Linking data pipeline outputs to commit history
 Versioning of code with git is easy, versioning data pipeline inputs/outputs is hard.
 
