@@ -40,3 +40,8 @@ class TestGit:
         assert commits[-1] == "3286fe415a4e1b7fcfdd596a88d8e06bbf6ffed8"
         assert commits[-2] == "ed3219e39b6aafb728fd34c9f2ec11c4978a166c"
         pass
+
+    def test_git_status(self):
+        result = utils.git_status(_DP_REPOROOT)
+        assert "working tree clean" in result
+        pass

@@ -8,8 +8,10 @@ import pathlib
 import subprocess
 from typing import Dict, Tuple, Union
 
+PathLike = Union[str, pathlib.Path]
 
-def hash_file(fp: Union[str, pathlib.Path]) -> str:
+
+def hash_file(fp: PathLike) -> str:
     """Computes the MD5 hash of a file."""
     file_hash = hashlib.md5()
     with open(fp, "rb") as file:
@@ -31,7 +33,7 @@ def hash_all_files(dp: str) -> Dict[str, str]:
     return hashes
 
 
-def git_log(dp: Union[str, pathlib.Path]) -> Tuple[str]:
+def git_log(dp: PathLike) -> Tuple[str]:
     """Returns a tuple of all commit hashes in the git history (newest first)."""
     output = subprocess.check_output(
         ["git", "--git-dir", str(dp / ".git"), "log", '--format=format:"%H"']
@@ -39,3 +41,10 @@ def git_log(dp: Union[str, pathlib.Path]) -> Tuple[str]:
     output = output.strip().decode("ascii")
     output = output.replace('"', "")
     return tuple(output.split("\n"))
+
+
+def git_status(dp: PathLike) -> str:
+    """Returns the git status message."""
+    output = subprocess.check_output(["git", "--git-dir", str(dp / ".git"), "status"])
+    output = output.strip().decode("ascii")
+    return output
