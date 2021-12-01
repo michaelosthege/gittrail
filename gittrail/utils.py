@@ -2,6 +2,7 @@
 Utility functions independent of ``gittrail`` components.
 """
 
+import datetime
 import hashlib
 import os
 import pathlib
@@ -46,3 +47,8 @@ def git_status(dp: PathLike) -> str:
     output = subprocess.check_output(["git", "-C", str(dp), "status"])
     output = output.strip().decode("ascii")
     return output
+
+
+def now() -> datetime.datetime:
+    """Timezone aware UTC now."""
+    return datetime.datetime.now().astimezone(datetime.timezone.utc)
