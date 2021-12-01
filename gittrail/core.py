@@ -6,29 +6,71 @@ import logging
 import os
 import pathlib
 from datetime import datetime
-from typing import Dict, Union
+from typing import Dict, Optional, Set, Union
 
 from . import exceptions, utils
 
 _log = logging.getLogger(__file__)
 
 
+def _get_session_number(dp_trail: pathlib.Path) -> int:
+    """Determins the current session number from the existing audittrail files."""
+    sfiles = tuple(dp_trail.glob("*.json"))
+    for s, sf in enumerate(sorted(sfiles, key=lambda fp: fp.name)):
+        if not sf.name == f"{s:04d}.json":
+            raise exceptions.IncompleteHistoryError(f"Missing audit trail of session number {s}.")
+    return len(sfiles)
+
+
+def _get_active_sessions(store: pathlib.Path) -> Set[int]:
+    sfiles = tuple(store.glob("*.json"))
+    active = {
+        s
+        for s, sf in enumerate(sorted(sfiles, key=lambda fp: fp.name))
+        if _meta_read(sf)["end_utc"] is None
+    }
+    return active
+
+
+def _drop_active(
+    *, files: Dict[str, str], drop_meta: Set[int], drop_logs: Set[int], store: str
+) -> Dict[str, str]:
+    """Removes log and metadata files of specific sessions from the file hash dictionary."""
+    ignore_jsons = {f"{store}/{s:04d}.json" for s in drop_meta}
+    ignore_logs = {f"{store}/{s:04d}.log" for s in drop_logs}
+    ignore_paths = {*ignore_logs, *ignore_jsons}
+    return {fpr: h for fpr, h in files.items() if fpr not in ignore_paths}
+
+
+def _meta_read(fp: pathlib.Path) -> dict:
+    with fp.open(encoding="utf-8") as jfile:
+        meta = json.load(jfile)
+    return meta
+
+
+def _meta_write(fp: pathlib.Path, meta: dict):
+    with open(fp, "w", encoding="utf-8") as jfile:
+        json.dump(meta, jfile, indent=4)
+    return
+
+
 def _commit_trail(
     fp: Union[str, pathlib.Path],
     commit_id: str,
     start_utc: datetime,
-    end_utc: datetime,
+    end_utc: Optional[datetime],
     files: Dict[str, str],
 ):
     """Writes an audittrail entry."""
     meta = {
         "commit_id": commit_id,
         "start_utc": start_utc.strftime("%Y-%m-%dT%H:%M:%S.%f%z").replace("+0000", "Z"),
-        "end_utc": end_utc.strftime("%Y-%m-%dT%H:%M:%S.%f%z").replace("+0000", "Z"),
+        "end_utc": end_utc.strftime("%Y-%m-%dT%H:%M:%S.%f%z").replace("+0000", "Z")
+        if end_utc is not None
+        else None,
         "files": files,
     }
-    with open(fp, "w", encoding="utf-8") as jfile:
-        json.dump(meta, jfile, indent=4)
+    _meta_write(fp, meta)
     return
 
 
@@ -62,8 +104,10 @@ class GitTrail:
         self._dp_trail = self.data / store
         self._git_history = None
         self._session_number = None
+        self._session_fp = None
         self._session_start_utc = None
         self._session_end_utc = None
+        self._files = None
         self._log_file = None
         self._log_handler = None
         self._log_level = log_level
@@ -73,8 +117,10 @@ class GitTrail:
     def __enter__(self):
         # Reset state attributes
         self._session_number = None
+        self._session_fp = None
         self._session_start_utc = None
         self._session_end_utc = None
+        self._files = None
         self._log_file = None
         self._log_handler = None
         self._log_level_before = None
@@ -89,75 +135,84 @@ class GitTrail:
 
         # Check the audittrail
         self._dp_trail.mkdir(exist_ok=True)
+        self._session_number = _get_session_number(self._dp_trail)
+        self._session_fp = self._dp_trail / f"{self._session_number:04d}.json"
+        self._log_file = self._dp_trail / f"{self._session_number:04d}.log"
+        active_sessions = _get_active_sessions(self._dp_trail)
+        self._files = _drop_active(
+            files=utils.hash_all_files(self.data),
+            drop_logs=active_sessions,
+            drop_meta=active_sessions,
+            store=self._dp_trail.name,
+        )
         self._check_integrity()
 
         # All checks succceeded. The session can start.
         self._attach_log_handler()
         self._session_start_utc = utils.now()
+        _commit_trail(
+            fp=self._session_fp,
+            commit_id=self._git_history[0],
+            start_utc=self._session_start_utc,
+            end_utc=None,
+            files=self._files,
+        )
         return self
 
     def __exit__(self, *args, **kwargs):
         self._session_end_utc = utils.now()
         self._detach_log_handler()
+        active_sessions = _get_active_sessions(self._dp_trail)
+        self._files = _drop_active(
+            files=utils.hash_all_files(self.data),
+            drop_logs=active_sessions - {self._session_number},
+            drop_meta=active_sessions,
+            store=self._dp_trail.name,
+        )
         _commit_trail(
-            fp=self._dp_trail / f"{self._session_number:04d}.json",
+            fp=self._session_fp,
             commit_id=self._git_history[0],
             start_utc=self._session_start_utc,
             end_utc=self._session_end_utc,
-            files=utils.hash_all_files(self.data),
+            files=self._files,
         )
         return
-
-    def _get_session_number(self) -> int:
-        """Determins the current session number from the existing audittrail files."""
-        sfiles = tuple(self._dp_trail.glob("*.json"))
-        for s, sf in enumerate(sorted(sfiles, key=lambda fp: fp.name)):
-            if not sf.name == f"{s:04d}.json":
-                raise exceptions.IncompleteHistoryError(
-                    f"Missing audittrail of session number {s}."
-                )
-            with open(sf, encoding="utf-8") as jfile:
-                meta = json.load(jfile)
-                cid = meta["commit_id"]
-                if not cid in self._git_history:
-                    raise exceptions.UnknownCommitError(
-                        f"Audit trail session {s} ran with "
-                        f"commit {cid} that's not in the git history."
-                    )
-        return len(sfiles)
 
     def _check_integrity(self):
         """Checks that the current contents of the [data] match the audittrail."""
         _log.debug("Checking integrity of %s", self.data)
-        sn = self._get_session_number()
-        self._session_number = sn
-        self._log_file = self._dp_trail / f"{self._session_number:04d}.log"
 
-        # Get file hashes from the last session
-        if self._session_number > 0:
-            fp = self._dp_trail / f"{sn - 1:04d}.json"
-            with fp.open("r", encoding="utf-8") as jfile:
-                previous = json.load(jfile)["files"]
-        else:
-            previous = {}
-
-        # And file hashes as they are now
-        current = utils.hash_all_files(self.data)
+        # Read all session files in order to validate that their commit_id is known.
+        files_before = {}
+        for s in range(self._session_number):
+            meta = _meta_read(self._dp_trail / f"{s:04d}.json")
+            cid = meta["commit_id"]
+            if not cid in self._git_history:
+                raise exceptions.UnknownCommitError(
+                    f"Audit trail session {s} ran with "
+                    f"commit {cid} that's not in the git history."
+                )
+            files_before = meta["files"]
 
         # Any files missing, compared to the previous session?
-        missing = {h: fp for h, fp in previous.items() if not h in current}
+        missing = {fpr: h for fpr, h in files_before.items() if not fpr in self._files}
         if missing:
-            msg = "\n".join([f"{h}: {fp}" for h, fp in missing.items()])
             _log.warning(
-                "Missing %i files compared to the previous session:\n%s", len(missing), msg
+                "Missing %i files compared to the previous session:\n%s",
+                len(missing),
+                "\n".join(missing),
             )
 
         # Any new/changed files? (Except the last sessions audittrail file.)
-        fpm = self._dp_trail / f"{sn - 1:04d}.json"
-        fpm = str(fpm.relative_to(self.data)).replace(os.sep, "/")
-        extra = {h: fp for h, fp in current.items() if not h in previous and fp != fpm}
+        expected_extra = {
+            self._dp_trail / f"{self._session_number - 1:04d}.json",
+        }
+        expected_extra = {
+            str(fp.relative_to(self.data)).replace(os.sep, "/") for fp in expected_extra
+        }
+        extra = set(self._files) - set(files_before) - set(expected_extra)
         if extra:
-            msg = "\n".join([f"{h}: {fp}" for h, fp in extra.items()])
+            msg = "\n".join(extra)
             raise exceptions.IntegrityError(
                 f"Found {len(extra)} files that were illegally added/changed:\n{msg}"
             )

@@ -25,12 +25,13 @@ def hash_file(fp: PathLike) -> str:
 
 
 def hash_all_files(dp: str) -> Dict[str, str]:
-    """Hashes all files in [dp], returning a dict keyed by the hashes."""
+    """Hashes all files in [dp], returning a dict keyed by the relative filepaths."""
     files = tuple(pathlib.Path(dp).glob("**/*"))
     hashes = {}
     for fp in files:
         if fp.is_file():
-            hashes[hash_file(fp)] = str(fp.relative_to(dp)).replace(os.sep, "/")
+            fpr = str(fp.relative_to(dp)).replace(os.sep, "/")
+            hashes[fpr] = hash_file(fp)
     return hashes
 
 

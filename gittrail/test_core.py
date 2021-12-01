@@ -37,6 +37,47 @@ class TestFunctions:
         assert meta["files"] == files
         pass
 
+    def test_get_session_number(self, tmpdir):
+        tmpdir = pathlib.Path(tmpdir)
+        (tmpdir / "0001.json").touch()
+        (tmpdir / "0000.json").touch()
+        (tmpdir / "0002.json").touch()
+        assert gittrail.core._get_session_number(tmpdir) == 3
+
+        (tmpdir / "0004.json").touch()
+        with pytest.raises(gittrail.IncompleteHistoryError, match="session number 3"):
+            gittrail.core._get_session_number(tmpdir)
+        pass
+
+    def test_get_active_sessions(self, tmpdir):
+        data = pathlib.Path(tmpdir)
+        store = data / ".gittrail"
+        store.mkdir()
+        gittrail.core._meta_write(store / "0000.json", dict(end_utc="2021-10-11T07:08:09.000123Z"))
+        gittrail.core._meta_write(store / "0001.json", dict(end_utc=None))
+        assert gittrail.core._get_active_sessions(store) == {1}
+        pass
+
+    def test_drop_active(self):
+        assert gittrail.core._drop_active(
+            files={
+                "store/0000.log": 1,
+                "store/0000.json": 2,
+                "store/0001.log": 3,
+                "store/0001.json": 4,
+                "store/0002.log": 5,
+                "store/0002.json": 6,
+            },
+            drop_logs={0, 2},
+            drop_meta={1},
+            store="store",
+        ) == {
+            "store/0000.json": 2,
+            "store/0001.log": 3,
+            "store/0002.json": 6,
+        }
+        pass
+
 
 class TestGittrail:
     def test_has_version(self):
@@ -60,6 +101,7 @@ class TestGittrail:
             data=tmpdir,
         )
         assert not gt._dp_trail.exists()
+        assert gt._session_number is None
         pass
 
     def test_custom_subdir(self, tmpdir):
@@ -72,21 +114,31 @@ class TestGittrail:
         pass
 
     def test_enter_exit_noop_context(self, tmpdir):
-        repo = test_helpers.create_repo(tmpdir)
+        repo = test_helpers.create_repo(tmpdir, n_commits=3)
         data = tmpdir / "data"
         data.mkdir()
 
         with gittrail.GitTrail(repo, data) as gt:
             assert len(gt._git_history) == 3
-        assert (data / ".gittrail" / "0000.json").exists()
-        assert (data / ".gittrail" / "0000.log").exists()
-        with (data / ".gittrail" / "0000.json").open("r", encoding="utf-8") as jfile:
-            meta = json.load(jfile)
-        assert meta["commit_id"] == utils.git_log(repo)[0]
-        assert "start_utc" in meta
-        assert "end_utc" in meta
-        assert len(meta["files"]) == 1
-        assert tuple(meta["files"].values())[0] == ".gittrail/0000.log"
+            assert gt._session_number == 0
+            assert gt._session_fp is not None
+            assert gt._session_start_utc is not None
+            assert gt._session_end_utc is None
+            assert gt._files == {}
+            assert gt._log_file is not None
+            assert gt._log_handler is not None
+            assert gt._log_file is not None
+            assert (data / ".gittrail" / "0000.json").exists()
+            assert (data / ".gittrail" / "0000.log").exists()
+            meta = gittrail.core._meta_read(data / ".gittrail" / "0000.json")
+            assert meta["commit_id"] == utils.git_log(repo)[0]
+            assert len(meta["start_utc"]) == 27
+            assert meta["end_utc"] is None
+            assert meta["files"] == {}
+        assert set(gt._files) == {".gittrail/0000.log"}
+        meta = gittrail.core._meta_read(data / ".gittrail" / "0000.json")
+        assert meta["end_utc"] is not None
+        assert set(meta["files"]) == {".gittrail/0000.log"}
         pass
 
     @pytest.mark.parametrize("log_level", _LOG_LEVELS)
@@ -121,20 +173,13 @@ class TestGittrail:
 
         pass
 
-    def test_trail_gaps(self, tmpdir):
+    def test_check_integrity(self, tmpdir):
         repo = test_helpers.create_repo(tmpdir)
         data = tmpdir / "data"
         data.mkdir()
         gt = gittrail.GitTrail(repo, data)
         with gt:
             logging.info("Session 0")
-
-        # In-between session metadata must be kept
-        fp = gt._dp_trail / "0002.json"
-        fp.touch()
-        with pytest.raises(gittrail.IncompleteHistoryError, match="session number 1"):
-            with gt:
-                pass
 
         # Each historic session must link a commit ID from the git history
         gittrail.core._commit_trail(
@@ -145,7 +190,8 @@ class TestGittrail:
             files=utils.hash_all_files(data),
         )
         with pytest.raises(gittrail.UnknownCommitError, match="session 1 ran with"):
-            gt._get_session_number()
+            with gt:
+                pass
         pass
 
     def test_multiple_sessions(self, tmpdir, caplog):
@@ -171,4 +217,45 @@ class TestGittrail:
         with pytest.raises(gittrail.IntegrityError, match="Found 1 files"):
             with gt:
                 pass
+        pass
+
+    def test_nested_sessions(self, tmpdir):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        with gittrail.GitTrail(repo, data) as outer:
+            logging.info("Outer session")
+            assert len(outer._files) == 0
+
+            # Start a parallel session
+            with gittrail.GitTrail(repo, data) as inner:
+                logging.info("Inner session")
+                # The JSON & LOG of the outer session are expected diffs
+                assert len(outer._files) == 0
+            # Log of the inner session
+            assert len(inner._files) == 1
+        # Log & json of the inner + log of the outer session
+        assert len(outer._files) == 3
+        pass
+
+    def test_interleaved_sessions(self, tmpdir):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        sessA = gittrail.GitTrail(repo, data)
+        sessB = gittrail.GitTrail(repo, data)
+
+        sessA.__enter__()
+        assert len(sessA._files) == 0
+
+        sessB.__enter__()
+        assert len(sessA._files) == 0
+
+        sessA.__exit__()
+        assert len(sessA._files) == 1
+
+        sessB.__exit__()
+        assert len(sessB._files) == 3
         pass

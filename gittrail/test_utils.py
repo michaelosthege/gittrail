@@ -17,6 +17,15 @@ class TestHashing:
         assert h == "3b3b66fa0374d39c905430f7c98606e4"
         pass
 
+    def test_hash_depends_only_on_content(self, tmpdir):
+        tmpdir = pathlib.Path(tmpdir)
+        fp1 = tmpdir / "1.txt"
+        fp2 = tmpdir / "2.txt"
+        fp1.write_text("Hi there")
+        fp2.write_text("Hi there")
+        assert utils.hash_file(fp1) == utils.hash_file(fp2)
+        pass
+
     def test_hash_all_files(self, tmpdir):
         tmpdir = pathlib.Path(tmpdir)
         d1 = tmpdir
@@ -26,8 +35,8 @@ class TestHashing:
         (d2 / "two.txt").write_text("File two")
         result = utils.hash_all_files(d1)
         assert isinstance(result, dict)
-        assert result["5d1c020d53f38ccf82ec532f35c9ca27"] == "one.txt"
-        assert result["51ae396c5595862e990e318c2176addb"] == "subfolder/two.txt"
+        assert result["one.txt"] == "5d1c020d53f38ccf82ec532f35c9ca27"
+        assert result["subfolder/two.txt"] == "51ae396c5595862e990e318c2176addb"
         pass
 
 
