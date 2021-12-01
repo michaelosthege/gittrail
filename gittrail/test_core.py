@@ -62,6 +62,15 @@ class TestGittrail:
         assert not gt._dp_trail.exists()
         pass
 
+    def test_custom_subdir(self, tmpdir):
+        gt = gittrail.GitTrail(
+            repo=_DP_REPOROOT,
+            data=tmpdir,
+            store="audittrail",
+        )
+        assert gt._dp_trail.name == "audittrail"
+        pass
+
     def test_enter_exit_noop_context(self, tmpdir):
         repo = test_helpers.create_repo(tmpdir)
         data = tmpdir / "data"

@@ -35,7 +35,7 @@ def _commit_trail(
 class GitTrail:
     """Context manager for linking data with git history."""
 
-    def __init__(self, repo: str, data: str, *, log_level: int = None):
+    def __init__(self, repo: str, data: str, *, log_level: int = None, store: str = ".gittrail"):
         """Instantiate a ``GitTrail`` configuration.
 
         Parameters
@@ -49,6 +49,8 @@ class GitTrail:
             Log level to capture within the session.
             Applies to the root logger, which will be reset to its original
             log level when the session ends.
+        store : str
+            Name of the sub-directory in ``data`` where the audit trail is stored.
         """
         self.repo = pathlib.Path(repo)
         self.data = pathlib.Path(data)
@@ -57,7 +59,7 @@ class GitTrail:
         if not self.data.exists():
             raise FileNotFoundError(f"Data path {self.data} does not exist.")
 
-        self._dp_trail = self.data / ".gittrail"
+        self._dp_trail = self.data / store
         self._git_history = None
         self._session_number = None
         self._session_start_utc = None
