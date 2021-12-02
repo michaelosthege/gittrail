@@ -1,4 +1,6 @@
+[![PyPI version](https://img.shields.io/pypi/v/gittrail)](https://pypi.org/project/gittrail)
 [![pipeline](https://github.com/michaelosthege/gittrail/workflows/pipeline/badge.svg)](https://github.com/michaelosthege/gittrail/actions)
+[![coverage](https://codecov.io/gh/michaelosthege/gittrail/branch/main/graph/badge.svg)](https://codecov.io/gh/michaelosthege/gittrail)
 
 
 # `gittrail` - Linking data pipeline outputs to git history
