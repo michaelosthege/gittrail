@@ -77,7 +77,7 @@ def _commit_trail(
 class GitTrail:
     """Context manager for linking data with git history."""
 
-    def __init__(self, repo: str, data: str, *, log_level: int = None, store: str = ".gittrail"):
+    def __init__(self, repo: str, data: str, *, log_level: int = None, store: str = "gittrail"):
         """Instantiate a ``GitTrail`` configuration.
 
         Parameters

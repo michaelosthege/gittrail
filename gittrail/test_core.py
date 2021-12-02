@@ -51,7 +51,7 @@ class TestFunctions:
 
     def test_get_active_sessions(self, tmpdir):
         data = pathlib.Path(tmpdir)
-        store = data / ".gittrail"
+        store = data / "gittrail"
         store.mkdir()
         gittrail.core._meta_write(store / "0000.json", dict(end_utc="2021-10-11T07:08:09.000123Z"))
         gittrail.core._meta_write(store / "0001.json", dict(end_utc=None))
@@ -128,17 +128,17 @@ class TestGittrail:
             assert gt._log_file is not None
             assert gt._log_handler is not None
             assert gt._log_file is not None
-            assert (data / ".gittrail" / "0000.json").exists()
-            assert (data / ".gittrail" / "0000.log").exists()
-            meta = gittrail.core._meta_read(data / ".gittrail" / "0000.json")
+            assert (data / "gittrail" / "0000.json").exists()
+            assert (data / "gittrail" / "0000.log").exists()
+            meta = gittrail.core._meta_read(data / "gittrail" / "0000.json")
             assert meta["commit_id"] == utils.git_log(repo)[0]
             assert len(meta["start_utc"]) == 27
             assert meta["end_utc"] is None
             assert meta["files"] == {}
-        assert set(gt._files) == {".gittrail/0000.log"}
-        meta = gittrail.core._meta_read(data / ".gittrail" / "0000.json")
+        assert set(gt._files) == {"gittrail/0000.log"}
+        meta = gittrail.core._meta_read(data / "gittrail" / "0000.json")
         assert meta["end_utc"] is not None
-        assert set(meta["files"]) == {".gittrail/0000.log"}
+        assert set(meta["files"]) == {"gittrail/0000.log"}
         pass
 
     @pytest.mark.parametrize("log_level", _LOG_LEVELS)
