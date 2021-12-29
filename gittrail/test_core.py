@@ -160,66 +160,6 @@ class TestGittrail:
             assert (f"Level {l}." in captured) == (l >= log_level), f"Level {l} is missing"
         pass
 
-    def test_enter_exceptions(self, tmpdir):
-        repo = test_helpers.create_repo(tmpdir)
-        data = tmpdir / "data"
-        data.mkdir()
-        gt = gittrail.GitTrail(repo, data)
-
-        fp_diff = repo / "new_code.py"
-        fp_diff.touch()
-
-        with pytest.raises(gittrail.UncleanGitStatusError, match="new_code.py"):
-            gt.__enter__()
-
-        pass
-
-    def test_check_integrity(self, tmpdir):
-        repo = test_helpers.create_repo(tmpdir)
-        data = tmpdir / "data"
-        data.mkdir()
-        gt = gittrail.GitTrail(repo, data)
-        with gt:
-            logging.info("Session 0")
-
-        # Each historic session must link a commit ID from the git history
-        gittrail.core._commit_trail(
-            fp=gt._dp_trail / "0001.json",
-            commit_id="notarealone",
-            start_utc=utils.now(),
-            end_utc=utils.now(),
-            files=utils.hash_all_files(data),
-        )
-        with pytest.raises(gittrail.UnknownCommitError, match="session 1 ran with"):
-            with gt:
-                pass
-        pass
-
-    def test_multiple_sessions(self, tmpdir, caplog):
-        repo = test_helpers.create_repo(tmpdir)
-        data = tmpdir / "data"
-        data.mkdir()
-        gt = gittrail.GitTrail(repo, data)
-        with gt:
-            logging.info("Session 0")
-        with gt:
-            logging.info("Session 1")
-        # Remove the log file of session 0 to trigger the missing file warning
-        (gt._dp_trail / "0000.log").unlink()
-        with caplog.at_level(logging.WARNING):
-            caplog.clear()
-            with gt:
-                logging.info("Session 2")
-            assert "Missing 1 files" in caplog.records[0].message
-            assert "0000.log" in caplog.records[0].message
-
-        # Write a new log file of session 0 to trigger the file integrity error
-        (gt._dp_trail / "0000.log").write_text("Not the real log")
-        with pytest.raises(gittrail.IntegrityError, match="Found 1 files"):
-            with gt:
-                pass
-        pass
-
     def test_nested_sessions(self, tmpdir):
         repo = test_helpers.create_repo(tmpdir)
         data = tmpdir / "data"
@@ -261,7 +201,8 @@ class TestGittrail:
         assert len(sessB._files) == 3
         pass
 
-    @pytest.mark.xfail(reason="https://github.com/michaelosthege/gittrail/issues/1")
+
+class TestMultiprocessing:
     @pytest.mark.parametrize("outfile", ["none", "start", "end"])
     def test_multiprocessing_burst(self, tmpdir, outfile):
         repo = test_helpers.create_repo(tmpdir)
@@ -281,13 +222,13 @@ class TestGittrail:
                 )
                 for num in range(nworkers)
             ]
-            successes = pool.map(test_helpers.session_worker, args)
-        assert all(successes)
+            results = pool.map(test_helpers.session_worker, args)
+        for succ, msg in results:
+            assert succ, msg
         with gittrail.GitTrail(repo, data):
             logging.info("QC passed.")
         pass
 
-    @pytest.mark.xfail(reason="https://github.com/michaelosthege/gittrail/issues/1")
     @pytest.mark.parametrize("outfile", ["none", "start", "end"])
     def test_multiprocessing_interleaved(self, tmpdir, outfile):
         repo = test_helpers.create_repo(tmpdir)
@@ -303,34 +244,181 @@ class TestGittrail:
                 dict(**common, worker_number=2, delay=0.2, duration=1),
                 dict(**common, worker_number=3, delay=0, duration=1.3),
             ]
-            successes = pool.map(test_helpers.session_worker, args)
-        assert all(successes)
+            results = pool.map(test_helpers.session_worker, args)
+        for succ, msg in results:
+            assert succ, msg
         with gittrail.GitTrail(repo, data):
             logging.info("QC passed.")
         pass
 
-    def test_interleaved_data_edit_fails(self, tmpdir):
+
+class TestGitIntegrityChecks:
+    def test_check_commit_in_history(self, tmpdir):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+        gt = gittrail.GitTrail(repo, data)
+        with gt:
+            logging.info("Session 0")
+
+        # Each historic session must link a commit ID from the git history
+        gittrail.core._commit_trail(
+            fp=gt._dp_trail / "0001.json",
+            commit_id="notarealone",
+            start_utc=utils.now(),
+            end_utc=utils.now(),
+            files=utils.hash_all_files(data),
+        )
+        with pytest.raises(gittrail.UnknownCommitError, match="session 1 ran with"):
+            with gt:
+                pass
+        pass
+
+    def test_checks_git_status_clean(self, tmpdir):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+        gt = gittrail.GitTrail(repo, data)
+
+        fp_diff = repo / "new_code.py"
+        fp_diff.touch()
+
+        with pytest.raises(gittrail.UncleanGitStatusError, match="new_code.py"):
+            gt.__enter__()
+
+        pass
+
+
+class TestDataIntegrityChecks:
+    def test_missing_file_warning(self, tmpdir, caplog):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+        gt = gittrail.GitTrail(repo, data)
+        with gt:
+            logging.info("Session 0")
+
+        # Remove the log file of session 0 to trigger the missing file warning
+        (gt._dp_trail / "0000.log").unlink()
+        with caplog.at_level(logging.WARNING):
+            caplog.clear()
+            with gt:
+                logging.info("Session 1")
+            assert "Missing 1 files" in caplog.records[0].message
+            assert "0000.log" in caplog.records[0].message
+        pass
+
+    def test_change_out_of_session_error(self, tmpdir):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        with gittrail.GitTrail(repo, data) as gt:
+            pass
+
+        gt._log_file.write_text("This is not allowed.")
+
+        with pytest.raises(gittrail.IntegrityError, match="illegally changed"):
+            with gittrail.GitTrail(repo, data):
+                pass
+        pass
+
+    def test_change_in_session_warning(self, tmpdir, caplog):
         """When session A creates a file before session B starts,
         but session A continues to change the file after session B ended,
-        the integrity breaks.  This is because session B hashed the file
-        in its original form already.
-        The only exception to this are the log files of active sessions.
-
-        Users should avoid making consecutive changes to a file in the data
-        directory, but instead use a temporary working directory and move
-        the file when it's complete.
+        the session B hashed an intermediate state.
+        This is okay, because A is the session that last _ended_.
         """
         repo = test_helpers.create_repo(tmpdir)
         data = tmpdir / "data"
         data.mkdir()
 
-        common = dict(repo=repo, data=data)
-        with multiprocessing.Pool(2) as pool:
-            args = [
-                dict(**common, outfile="start+end", delay=0, duration=0.5, worker_number=1),
-                dict(**common, delay=0.25, duration=0.5, worker_number=2),
-            ]
-            first, second = pool.map(test_helpers.session_worker, args)
-        assert first
-        assert not second
+        with gittrail.GitTrail(repo, data) as gtA:
+            fp = gtA.data / "file.txt"
+            fp.touch()
+            with gittrail.GitTrail(repo, data) as gtB:
+                assert "file.txt" in gtB._files
+            # B recorded a hash
+            fp.write_text("But now it's different!")
+
+            # A third session should detect that the history from B no longer applies.
+            with caplog.at_level(logging.WARNING):
+                caplog.clear()
+                with gittrail.GitTrail(repo, data):
+                    # This is fine.
+                    pass
+                assert "1 currently active sessions changed" in caplog.records[0].message
+                assert "file.txt" in caplog.records[0].message
+
+        with caplog.at_level(logging.WARNING):
+            caplog.clear()
+            with gittrail.GitTrail(repo, data):
+                pass
+            assert not caplog.records
+        pass
+
+    def test_addition_in_session_warning(self, tmpdir, caplog):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        with gittrail.GitTrail(repo, data) as gtA:
+            with gittrail.GitTrail(repo, data) as gtB:
+                pass
+            assert set(gtB._files) == {"gittrail/0001.log"}
+
+            # B recorded only its own logfile.
+            # A is still active and can still create some.
+            fp = gtA.data / "file.txt"
+            fp.touch()
+
+            # A third session should detect the new file.
+            with caplog.at_level(logging.WARNING):
+                caplog.clear()
+                with gittrail.GitTrail(repo, data):
+                    # This is fine.
+                    pass
+                assert "1 currently active sessions added" in caplog.records[0].message
+                assert "file.txt" in caplog.records[0].message
+
+        with caplog.at_level(logging.WARNING):
+            caplog.clear()
+            with gittrail.GitTrail(repo, data):
+                pass
+            assert not caplog.records
+        pass
+
+    def test_addition_out_of_session_error(self, tmpdir):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        with gittrail.GitTrail(repo, data) as gt:
+            pass
+
+        (gt.data / "file.txt").touch()
+
+        with pytest.raises(gittrail.IntegrityError, match="illegally added"):
+            with gittrail.GitTrail(repo, data):
+                pass
+        pass
+
+    def test_unexpectedly_known_exception(self, tmpdir):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        with gittrail.GitTrail(repo, data) as gt:
+            pass
+        # Manually mark the session as active, without removing the logfile
+        # from the session JSON.
+        with open(gt._session_fp) as jf:
+            meta = json.load(jf)
+            meta["end_utc"] = None
+        with open(gt._session_fp, "w") as jf:
+            json.dump(meta, jf, indent=4)
+
+        with pytest.raises(gittrail.IntegrityError, match="should not be in the history"):
+            with gt:
+                pass
         pass

@@ -18,6 +18,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
+        pip install -r requirements.txt
         pip install -r requirements-dev.txt
     - name: Lint with flake8
       run: |
@@ -27,7 +28,7 @@ jobs:
         flake8 . --count --exit-zero --statistics
     - name: Test with pytest
       run: |
-        pytest --cov=./gittrail --cov-report xml --cov-report term-missing gittrail/
+        pytest -v --cov=./gittrail --cov-report xml --cov-report term-missing gittrail/
     - name: Upload coverage
       uses: codecov/codecov-action@v2
       if: matrix.python-version == 3.9

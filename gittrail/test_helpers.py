@@ -2,6 +2,8 @@ import logging
 import pathlib
 import subprocess
 import time
+import traceback
+from datetime import datetime
 
 import gittrail
 
@@ -27,22 +29,27 @@ def session_worker(kwargs):
     assert outfile in {"none", "start", "end", "start+end"}
     delay = kwargs.get("delay", 0)
     duration = kwargs.get("duration", 0)
+    success = False
+    message = ""
     try:
         if delay:
             logging.info("Worker number %i delaying.", num)
             time.sleep(delay)
         logging.info("Worker number %i starting.", num)
-        with gittrail.GitTrail(repo, data) as gt:
+        with gittrail.GitTrail(repo, data, log_level=logging.DEBUG) as gt:
             fp_outfile = gt.data / f"worker_{num}.data"
             logging.info("Worker number %i started.", num)
             if "start" in outfile:
-                fp_outfile.open("a").write(f"Made by worker {num} (start).")
+                fp_outfile.open("a").write(f"Made by worker {num} ({datetime.now()}).\n")
             time.sleep(duration)
             if "end" in outfile:
-                fp_outfile.open("a").write(f"Made by worker {num} (end).")
+                fp_outfile.open("a").write(f"Made by worker {num} ({datetime.now()}).\n")
             logging.info("Worker number %i exiting.", num)
         logging.info("Worker number %i exited.", num)
-        return True
+        success = True
     except Exception as ex:
-        logging.error("Worker %i failed.", num, exc_info=ex)
-        return False
+        success = False
+        message = f"Worker {num} failed.\n"
+        logging.error(message, exc_info=ex)
+        message += "".join(traceback.format_exception(None, ex, ex.__traceback__))
+    return success, message

@@ -7,7 +7,7 @@ import hashlib
 import os
 import pathlib
 import subprocess
-from typing import Dict, Tuple, Union
+from typing import Dict, Optional, Set, Tuple, Union
 
 PathLike = Union[str, pathlib.Path]
 
@@ -24,14 +24,28 @@ def hash_file(fp: PathLike) -> str:
     return file_hash.hexdigest()
 
 
-def hash_all_files(dp: str) -> Dict[str, str]:
-    """Hashes all files in [dp], returning a dict keyed by the relative filepaths."""
+def hash_all_files(
+    dp: str, exclude: Optional[Set[Union[str, pathlib.Path]]] = None
+) -> Dict[str, str]:
+    """Hashes all files in [dp], returning a dict keyed by the relative filepaths.
+
+    Parameters
+    ----------
+    dp : path-like
+        Target directory.
+    exclude : set of str
+        File paths to ``dp`` to exclude from the hashing.
+    """
+    exclude = {
+        str(pathlib.Path(fp).relative_to(dp)).replace(os.sep, "/") for fp in exclude or set()
+    }
     files = tuple(pathlib.Path(dp).glob("**/*"))
     hashes = {}
     for fp in files:
         if fp.is_file():
             fpr = str(fp.relative_to(dp)).replace(os.sep, "/")
-            hashes[fpr] = hash_file(fp)
+            if fpr not in exclude:
+                hashes[fpr] = hash_file(fp)
     return hashes
 
 

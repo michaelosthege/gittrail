@@ -21,10 +21,11 @@ jobs:
         python-version: 3.9
     - name: Install dependencies
       run: |
+        pip install -r requirements.txt
         pip install -r requirements-dev.txt
     - name: Test with pytest
       run: |
-        pytest --cov=./gittrail --cov-report term-missing gittrail/
+        pytest -v --cov=./gittrail --cov-report term-missing gittrail/
     - name: Build package
       run: |
         python setup.py sdist bdist_wheel

@@ -38,6 +38,6 @@ setuptools.setup(
         "License :: OSI Approved :: GNU Affero General Public License v3",
         "Intended Audience :: Science/Research",
     ],
-    install_requires=[],
+    install_requires=[open(pathlib.Path(ROOT, "requirements.txt")).readlines()],
     python_requires=">=3.6",
 )
