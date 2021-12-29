@@ -1,5 +1,6 @@
 import json
 import logging
+import multiprocessing
 import pathlib
 from datetime import datetime, timezone
 
@@ -258,4 +259,78 @@ class TestGittrail:
 
         sessB.__exit__()
         assert len(sessB._files) == 3
+        pass
+
+    @pytest.mark.xfail(reason="https://github.com/michaelosthege/gittrail/issues/1")
+    @pytest.mark.parametrize("outfile", ["none", "start", "end"])
+    def test_multiprocessing_burst(self, tmpdir, outfile):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        nworkers = 50
+        with multiprocessing.Pool(nworkers) as pool:
+            args = [
+                dict(
+                    repo=repo,
+                    data=data,
+                    outfile=outfile,
+                    worker_number=num,
+                    delay=0,
+                    duration=1,
+                )
+                for num in range(nworkers)
+            ]
+            successes = pool.map(test_helpers.session_worker, args)
+        assert all(successes)
+        with gittrail.GitTrail(repo, data):
+            logging.info("QC passed.")
+        pass
+
+    @pytest.mark.xfail(reason="https://github.com/michaelosthege/gittrail/issues/1")
+    @pytest.mark.parametrize("outfile", ["none", "start", "end"])
+    def test_multiprocessing_interleaved(self, tmpdir, outfile):
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        nworkers = 4
+        common = dict(repo=repo, data=data, outfile=outfile)
+        with multiprocessing.Pool(nworkers) as pool:
+            args = [
+                dict(**common, worker_number=0, delay=0, duration=1),
+                dict(**common, worker_number=1, delay=0.1, duration=0.5),
+                dict(**common, worker_number=2, delay=0.2, duration=1),
+                dict(**common, worker_number=3, delay=0, duration=1.3),
+            ]
+            successes = pool.map(test_helpers.session_worker, args)
+        assert all(successes)
+        with gittrail.GitTrail(repo, data):
+            logging.info("QC passed.")
+        pass
+
+    def test_interleaved_data_edit_fails(self, tmpdir):
+        """When session A creates a file before session B starts,
+        but session A continues to change the file after session B ended,
+        the integrity breaks.  This is because session B hashed the file
+        in its original form already.
+        The only exception to this are the log files of active sessions.
+
+        Users should avoid making consecutive changes to a file in the data
+        directory, but instead use a temporary working directory and move
+        the file when it's complete.
+        """
+        repo = test_helpers.create_repo(tmpdir)
+        data = tmpdir / "data"
+        data.mkdir()
+
+        common = dict(repo=repo, data=data)
+        with multiprocessing.Pool(2) as pool:
+            args = [
+                dict(**common, outfile="start+end", delay=0, duration=0.5, worker_number=1),
+                dict(**common, delay=0.25, duration=0.5, worker_number=2),
+            ]
+            first, second = pool.map(test_helpers.session_worker, args)
+        assert first
+        assert not second
         pass
